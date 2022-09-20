@@ -1,3 +1,5 @@
 ENV
 secrets
 datasets/
+__pycache__
+.venv
