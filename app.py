@@ -1,10 +1,17 @@
+import nltk
+nltk.download('punkt')
+nltk.download('stopwords')
+
 from flask import Flask, request, jsonify
 import numpy as np
 from sentence_transformers import SentenceTransformer
 import pinecone
 import os
-
-
+from algoliasearch.search_client import SearchClient
+from fuzzywuzzy import fuzz
+from nltk import word_tokenize
+from nltk.corpus import stopwords
+import pandas as pd
 
 
 app = Flask(__name__)
@@ -58,6 +65,39 @@ def search_openai():
         return jsonify({'results': res['matches']})
     return "Not a proper request method or data"
 
+@app.route('/search-algolia', methods=['POST'])
+def search_algolia():
+    if request.method=="POST":
+        payload = request.get_json()
+        query = payload.get('query')
+        
+        res = algolia_index.search(query)
+        
+        return jsonify({'results': res['hits']})
+    return "Not a proper request method or data"
+
+@app.route('/search-fuzzy', methods=['POST'])
+def search_fuzzy():
+    if request.method == "POST":
+        payload = request.get_json()
+        query = payload.get('query')
+
+        tokenized_query = word_tokenize(query)
+        filtered_query = [w for w in tokenized_query if not w.lower() in stop_words]
+
+        # Get the data
+        
+        # fuzzywuzzy_df['fuzzy_score'] = [fuzz.token_set_ratio(filtered_query, x) for x in fuzzywuzzy_df['text']]
+        # res = fuzzywuzzy_df.sort_values(by='fuzzy_score', ascending=False).head(10).to_dict('records')
+
+        
+        fuzzywuzzy_df['fuzzy_score'] = [fuzz.token_set_ratio(filtered_query, x) for x in fuzzywuzzy_df['text']]
+        
+        res = fuzzywuzzy_df.sort_values(by='fuzzy_score', ascending=False).head(10).to_dict('records')
+
+        return {'results': res}
+    return "Not a proper request method or data"
+
 
 if __name__ == '__main__':
 
@@ -73,6 +113,16 @@ if __name__ == '__main__':
 
     huggingface_index = pinecone.Index('nocd-search-huggingface')
     openai_index = pinecone.Index('nocd-search-openai')
+
+    print('Connecting to Algolia...')
+    client = SearchClient.create('G7U8YEW7EE', 'd96ba3c150e720cb86debb0d597ffeb2')
+    algolia_index = client.init_index('nocd-blogs')
+
+    print('Loading Fuzzywuzzy data...')
+    fuzzywuzzy_df = pd.read_csv('datasets/blogs.csv', usecols=['text','tag','paragraph','article','num_words','num_sentences'])
+    fuzzywuzzy_df = fuzzywuzzy_df.fillna(np.nan).replace([np.nan], [None])
+    stop_words = set(stopwords.words('english'))
+    
 
 
     app.run(debug=True, host='0.0.0.0', port=5000)
