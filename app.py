@@ -1,4 +1,5 @@
 import nltk
+
 nltk.download('punkt')
 nltk.download('stopwords')
 
@@ -13,20 +14,22 @@ from nltk import word_tokenize
 from nltk.corpus import stopwords
 import pandas as pd
 import cohere
-
+import re
 
 app = Flask(__name__)
+
 
 @app.route('/', methods=['GET'])
 def index():
     return "Welcome to NOCD Search!"
 
+
 @app.route('/search-huggingface/<model>', methods=['POST'])
 def search_huggingface(model):
-    if request.method=="POST":
+    if request.method == "POST":
         payload = request.get_json()
         query = payload.get('query')
-        
+
         embed = huggingface_embed(query=query, model=hf_models[model])
         index = huggingface_index
         if model in ['multi-qa-MiniLM-L6-cos-v1']:
@@ -36,40 +39,44 @@ def search_huggingface(model):
         return jsonify({'results': res['matches']})
     return "Not a proper request method or data"
 
+
 @app.route('/search-openai', methods=['POST'])
 def search_openai():
-    if request.method=="POST":
+    if request.method == "POST":
         payload = request.get_json()
         query = payload.get('query')
-        
+
         embed = openai_embed(query=query)
         res = query_pinecone(embed=embed, index=openai_index, metadata_filters={'model': 'text-search-babbage-doc-001'})
-        
+
         return jsonify({'results': res['matches']})
     return "Not a proper request method or data"
+
 
 @app.route('/search-cohere', methods=['POST'])
 def search_cohere():
-    if request.method=="POST":
+    if request.method == "POST":
         payload = request.get_json()
         query = payload.get('query')
-        
+
         embed = cohere_embed(query=query)
         res = query_pinecone(embed=embed, index=openai_index, metadata_filters={'model': 'cohere-medium'})
-        
+
         return jsonify({'results': res['matches']})
     return "Not a proper request method or data"
 
+
 @app.route('/search-algolia', methods=['POST'])
 def search_algolia():
-    if request.method=="POST":
+    if request.method == "POST":
         payload = request.get_json()
         query = payload.get('query')
-        
+
         res = algolia_index.search(query)
-        
+
         return jsonify({'results': res['hits']})
     return "Not a proper request method or data"
+
 
 @app.route('/search-fuzzy', methods=['POST'])
 def search_fuzzy():
@@ -77,27 +84,30 @@ def search_fuzzy():
         payload = request.get_json()
         query = payload.get('query')
 
-        tokenized_query = word_tokenize(query)
+        query_with_no_special_chars = re.sub(r'[^\w\s]', '', query)
+        tokenized_query = word_tokenize(query_with_no_special_chars)
         filtered_query = [w for w in tokenized_query if not w.lower() in stop_words]
-        
+
         fuzzywuzzy_df['fuzzy_score'] = [fuzz.token_set_ratio(filtered_query, x) for x in fuzzywuzzy_df['text']]
-        
+
         res = fuzzywuzzy_df.sort_values(by='fuzzy_score', ascending=False).head(10).to_dict('records')
 
         return {'results': res}
     return "Not a proper request method or data"
 
+
 def query_pinecone(embed, index, metadata_filters={}, top_k=20):
-    
-    res = index.query(embed, filter=metadata_filters,top_k=top_k, include_metadata=True)
+    res = index.query(embed, filter=metadata_filters, top_k=top_k, include_metadata=True)
     # res = index.query(embed, top_k=top_k, include_metadata=True)
 
     return res.to_dict()
+
 
 def huggingface_embed(query, model):
     query_emb = model.encode(query, convert_to_tensor=True, show_progress_bar=False)
 
     return query_emb.tolist()
+
 
 def openai_embed(query):
     import openai
@@ -109,13 +119,12 @@ def openai_embed(query):
 
     return embed[0]
 
-def cohere_embed(query):
 
+def cohere_embed(query):
     return (co.embed(texts=[query], model='medium').embeddings)[0]
 
 
 if __name__ == '__main__':
-
     print('Loading HF models...')
     model_msmarco = SentenceTransformer('msmarco-distilbert-base-tas-b', device='cpu')
     model_msmarco.max_seq_length = 256
@@ -156,14 +165,12 @@ if __name__ == '__main__':
     algolia_index = client.init_index('nocd-blogs')
 
     print('Loading Fuzzywuzzy data...')
-    fuzzywuzzy_df = pd.read_csv('datasets/blogs.csv', usecols=['text','tag','paragraph','article','num_words','num_sentences'])
+    fuzzywuzzy_df = pd.read_csv('datasets/blogs.csv',
+                                usecols=['text', 'tag', 'paragraph', 'article', 'num_words', 'num_sentences'])
     fuzzywuzzy_df = fuzzywuzzy_df.fillna(np.nan).replace([np.nan], [None])
     stop_words = set(stopwords.words('english'))
 
     print('Connecting to Cohere...')
     co = cohere.Client(os.getenv('COHERE_API_KEY'))
-    
-
 
     app.run(debug=True, host='0.0.0.0', port=5000)
-    
