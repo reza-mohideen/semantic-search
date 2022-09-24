@@ -28,8 +28,11 @@ def search_huggingface(model):
         query = payload.get('query')
         
         embed = huggingface_embed(query=query, model=hf_models[model])
-        res = query_pinecone(embed=embed, index=huggingface_index,  metadata_filters={'model': model})
-        
+        index = huggingface_index
+        if model in ['multi-qa-MiniLM-L6-cos-v1']:
+            index = minilm_index
+
+        res = query_pinecone(embed=embed, index=index,  metadata_filters={'model': model})
         return jsonify({'results': res['matches']})
     return "Not a proper request method or data"
 
@@ -123,11 +126,19 @@ if __name__ == '__main__':
     model_mpnet_base = SentenceTransformer('all-mpnet-base-v2', device='cpu')
     model_mpnet_base.max_seq_length = 256
 
+    model_multi_qa_distilbert = SentenceTransformer('multi-qa-distilbert-cos-v1', device='cpu')
+    model_multi_qa_distilbert.max_seq_length = 256
+
+    model_multi_qa_MiniLM = SentenceTransformer('multi-qa-MiniLM-L6-cos-v1', device='cpu')
+    model_multi_qa_MiniLM.max_seq_length = 256
+
 
     hf_models = {
         'msmarco-distilbert-base-tas-b': model_msmarco,
         'all-distilroberta-v1': model_distilroberta,
-        'all-mpnet-base-v2': model_mpnet_base
+        'all-mpnet-base-v2': model_mpnet_base,
+        'multi-qa-distilbert-cos-v1': model_multi_qa_distilbert,
+        'multi-qa-MiniLM-L6-cos-v1': model_multi_qa_MiniLM
     }
 
     print('Connecting to Pinecone...')
@@ -137,6 +148,7 @@ if __name__ == '__main__':
     )
 
     huggingface_index = pinecone.Index('nocd-search-huggingface')
+    minilm_index = pinecone.Index('nocd-search-huggingface-mini-lm')
     openai_index = pinecone.Index('nocd-search-openai')
 
     print('Connecting to Algolia...')
